@@ -1,30 +1,11 @@
 console.log("injected.js");
 
-function ewHijackNotif(prefix) {
-  window.realNotification = window.Notification;
-
-  const override = {
-    construct(target, args) {
-      args[0] = `${prefix}${args[0]}`;
-      const thing = new target(...args);
-      thing.addEventListener("click", (ev) => {
-        console.log("ev", ev);
-        window?.ipc?.notifyEv?.(JSON.stringify(ev));
-      });
-
-      return thing;
-    },
-  };
-
-  window.Notification = new Proxy(window.realNotification, override);
-}
-
 function ewHijackClick() {
   document.body.addEventListener("click", (ev) => {
     if (!(ev.target instanceof HTMLAnchorElement)) return;
     if (ev.target.tagName === "A" && ev.target.getAttribute("target") === "_blank") {
       ev.preventDefault();
-      window?.ipc?.open?.(ev.target.href);
+      window?.ew?.open?.(ev.target.href);
     }
   });
 }
@@ -39,7 +20,7 @@ function ewDoWhatsappAction(whatsappAction) {
 }
 
 async function ewSetupKeys() {
-  const keys = await window?.ipc?.stateGet("keys");
+  const keys = await window?.ew?.stateGet("keys");
   const kMap = await navigator.keyboard?.getLayoutMap?.();
 
   const parsedCache = {};
@@ -72,7 +53,7 @@ async function ewSetupKeys() {
     await {
       OPEN_NTH_CHAT: (effect) => openNthChat(effect.chatIndex),
       SLEEP: async (effect) => new Promise((resolve) => setTimeout(resolve, effect.duration)),
-      IPC: async (effect) => window?.ipc?.[effect.method]?.(...(effect.args ?? [])),
+      IPC: async (effect) => window?.ew?.[effect.method]?.(...(effect.args ?? [])),
     }[effect.action]?.(effect);
   }
 
@@ -131,12 +112,9 @@ async function ewSetup() {
   console.log("ewSetup");
   ewHijackClick();
 
-  const prefix = await window?.ipc?.stateGet?.("notifPrefix");
-  ewHijackNotif(prefix);
-
   await ewSetupKeys();
 
-  if (await window?.ipc?.stateGet("escToggle")) {
+  if (await window?.ew?.stateGet("escToggle")) {
     addEventListener(
       "keydown",
       (ev) => {
@@ -146,7 +124,7 @@ async function ewSetup() {
             ev.preventDefault();
             ev.stopPropagation();
             console.log("esc: toggle window");
-            window?.ipc?.windowToggle?.();
+            window?.ew?.windowToggle?.();
           }
         }
       },

@@ -1,31 +1,26 @@
 # ElecWhat - Simple desktop WhatsApp client for Linux
 
-> **Status: migrating from Electron to Tauri.**
-> The Electron implementation and its packaging were removed. Phase 1
-> (foundation: window, config, single instance and window state) is implemented
-> in `src-tauri`. The WhatsApp injection, tray, notifications, D-Bus and
-> packaging are still to come. See the
-> [migration plan](docs/tauri-migration.md).
-
 <p align="center">
 <img width="400" alt="elecwhat" src="https://github.com/user-attachments/assets/3a352d5b-04a8-4e90-a063-330b706d096c" />
 </p>
 
 ## Features
-* Desktop notifications
-* Calls / Videos calls working (you need to join WhatsApp Web Beta)
-* Tray icon with unread count (aka AppIndicator), [custom tray icons](https://github.com/piec/elecwhat/issues/30#issuecomment-3470456738).
-* Custom keyboard shortcuts ([default](https://github.com/piec/elecwhat/blob/master/src/keys.mjs))
-* Custom CSS
-* Spellcheck
-* CLI & D-Bus interface to show/hide/toggle window
-* Dock unread count badge
-* Preserve window position
-* Custom user scripts in `~/.config/elecwhat/user-scripts/*.js`
-* Custom tray icons in `~/.config/elecwhat/user-icons/*.png` by default
-* Supports Wayland or X11
+
+- Desktop notifications
+- Calls / Videos calls working (you need to join WhatsApp Web Beta)
+- Tray icon with unread count (aka AppIndicator), [custom tray icons](https://github.com/piec/elecwhat/issues/30#issuecomment-3470456738).
+- Custom keyboard shortcuts ([default](https://github.com/piec/elecwhat/blob/master/src/keys.mjs))
+- Custom CSS
+- Spellcheck
+- CLI & D-Bus interface to show/hide/toggle window
+- Dock unread count badge
+- Preserve window position
+- Custom user scripts in `~/.config/elecwhat/user-scripts/*.js`
+- Custom tray icons in `~/.config/elecwhat/user-icons/*.png` by default
+- Supports Wayland or X11
 
 ## Why?
+
 I created this client after due to recurrent stability issues with other linux clients.
 Also I just wanted a simple and stable client and thought it could be done without much code.
 
@@ -49,31 +44,36 @@ Existing [Releases] were built from the Electron version and still work. This
 branch does not produce packages until the Tauri migration is done.
 
 ### Ubuntu/Kubuntu:
-* [Snap](https://snapcraft.io/elecwhat)
-* **or** [Buildkite deb] with `--no-sandbox` because of [issue]
-* **or** .deb file in [Releases] with `--no-sandbox` because of [issue]
-* **or** AppImage in [Releases] with `--no-sandbox` because of [issue]
+
+- [Snap](https://snapcraft.io/elecwhat)
+- **or** [Buildkite deb] with `--no-sandbox` because of [issue]
+- **or** .deb file in [Releases] with `--no-sandbox` because of [issue]
+- **or** AppImage in [Releases] with `--no-sandbox` because of [issue]
 
 ### Arch Linux:
-* [AUR package]: `yay -S elecwhat-bin`
-* **or** Pacman package in [Releases]
-* **or** AppImage in [Releases]
+
+- [AUR package]: `yay -S elecwhat-bin`
+- **or** Pacman package in [Releases]
+- **or** AppImage in [Releases]
 
 ### Debian:
-* [Buildkite deb]
-* **or** .deb file in [Releases]
-* **or** AppImage in [Releases]
+
+- [Buildkite deb]
+- **or** .deb file in [Releases]
+- **or** AppImage in [Releases]
 
 ### Fedora:
-* [Buildkite rpm]
-* **or** rpm file in [Releases]
-* **or** AppImage in [Releases]
+
+- [Buildkite rpm]
+- **or** rpm file in [Releases]
+- **or** AppImage in [Releases]
 
 ## Configuration
 
 `~/.config/elecwhat/config.json`:
 
 (or for snap: `~/snap/elecwhat/current/.config/elecwhat/config.json`)
+
 ```
 {
   "log-level": "info",
@@ -117,15 +117,16 @@ branch does not produce packages until the Tauri migration is done.
 ## Custom icons
 
 The naming scheme is based on WhatsApp Web favicon urls:
-* `~/.config/elecwhat/user-icons/app.png` during startup
-* `~/.config/elecwhat/user-icons/favicon.png` when there is no unread
-* `~/.config/elecwhat/user-icons/f01.png` where fXX.png is the number of unread
 
+- `~/.config/elecwhat/user-icons/app.png` during startup
+- `~/.config/elecwhat/user-icons/favicon.png` when there is no unread
+- `~/.config/elecwhat/user-icons/f01.png` where fXX.png is the number of unread
 
 ## Not planed
-* Multi account
-* Complex features
-* Other OS support, official apps already exist.
+
+- Multi account
+- Complex features
+- Other OS support, official apps already exist.
 
 [Buildkite deb]: https://buildkite.com/organizations/piec/packages/registries/elecwhat-deb
 [Buildkite rpm]: https://buildkite.com/organizations/piec/packages/registries/elecwhat-rpm

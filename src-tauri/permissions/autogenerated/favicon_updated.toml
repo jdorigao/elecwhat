@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-favicon-updated"
+description = "Enables the favicon_updated command without any pre-configured scope."
+commands.allow = ["favicon_updated"]
+
+[[permission]]
+identifier = "deny-favicon-updated"
+description = "Denies the favicon_updated command without any pre-configured scope."
+commands.deny = ["favicon_updated"]
