@@ -31,6 +31,7 @@ use tauri_plugin_window_state::StateFlags;
 use util::{Translations, tr};
 
 const PKG_NAME: &str = "elecwhat";
+const DEFAULT_URL: &str = "https://web.whatsapp.com/";
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
 pub struct AppState {
@@ -101,6 +102,24 @@ fn is_app_blob(url: &Url, expected: &Url) -> bool {
 /// URLs that must stay inside the webview instead of going to the system browser.
 fn is_internal_url(url: &Url, expected: &Url) -> bool {
     is_app_url(url, expected) || is_app_blob(url, expected) || url.as_str() == "about:blank"
+}
+
+/// The remote IPC capability is compiled for `web.whatsapp.com`, so any other
+/// origin would silently lose notify/favicon/toggle commands. Keep path and
+/// query configurable, but reject a different origin instead of limping along.
+fn app_url_or_default(raw: &str) -> Url {
+    let fallback = || Url::parse(DEFAULT_URL).expect("valid default URL");
+    match raw.parse::<Url>() {
+        Ok(url) if is_app_url(&url, &fallback()) => url,
+        Ok(url) => {
+            log::error!("unsupported `url` {url}; only the {DEFAULT_URL} origin is allowed");
+            fallback()
+        }
+        Err(e) => {
+            log::error!("invalid `url` in config: {e}; falling back to {DEFAULT_URL}");
+            fallback()
+        }
+    }
 }
 
 /// Reserves a safe, unused name in `dir` for a download whose destination is
@@ -425,10 +444,10 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
     let state = app.state::<AppState>();
     let config = &state.config;
     let page_host = state.url.host_str().map(String::from);
-    let permission_host = page_host.clone();
     let nav_expected = state.url.clone();
     let new_expected = state.url.clone();
     let page_expected = state.url.clone();
+    let permission_expected = state.url.clone();
     let page_app = app.clone();
     let nav_app = app.clone();
     let new_app = app.clone();
@@ -488,13 +507,12 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
         })
         .on_permission_request(move |webview, kind| {
             // Only the configured page may be granted camera/mic/screen access.
-            let same_host = webview
+            // Use the same strict origin check as navigation, not just the host.
+            let same_origin = webview
                 .url()
                 .ok()
-                .and_then(|u| u.host_str().map(String::from))
-                .as_deref()
-                == permission_host.as_deref();
-            if !same_host {
+                .is_some_and(|url| is_app_url(&url, &permission_expected));
+            if !same_origin {
                 log::warn!("denying {kind:?} from an unexpected origin");
                 return PermissionResponse::Deny;
             }
@@ -796,13 +814,7 @@ pub fn run() {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .unwrap_or_else(|| config_dir.join("user-icons")),
-        url: config
-            .str("url", "https://web.whatsapp.com/")
-            .parse()
-            .unwrap_or_else(|_| {
-                log::error!("invalid `url` in config, falling back to https://web.whatsapp.com/");
-                Url::parse("https://web.whatsapp.com/").expect("valid fallback URL")
-            }),
+        url: app_url_or_default(&config.str("url", DEFAULT_URL)),
         debug,
         show_at_startup: quit_on_close || debug || config.bool("show-at-startup", true),
         quit_on_close: AtomicBool::new(quit_on_close),
@@ -880,6 +892,23 @@ mod tests {
             &Url::parse("http://web.whatsapp.com/").unwrap(),
             &expected
         ));
+    }
+
+    #[test]
+    fn configured_url_keeps_the_whatsapp_origin_only() {
+        let fallback = Url::parse(DEFAULT_URL).unwrap();
+        let with_path = "https://web.whatsapp.com/send/?phone=1";
+        assert_eq!(app_url_or_default(with_path).as_str(), with_path);
+        assert_eq!(
+            app_url_or_default("https://web.whatsapp.com:8443/"),
+            fallback
+        );
+        assert_eq!(
+            app_url_or_default("https://user@web.whatsapp.com/"),
+            fallback
+        );
+        assert_eq!(app_url_or_default("https://evil.example/"), fallback);
+        assert_eq!(app_url_or_default("not a url"), fallback);
     }
 
     #[test]
