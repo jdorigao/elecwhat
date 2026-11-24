@@ -35,45 +35,27 @@ cargo tauri dev      # development build
 cargo tauri build    # deb, rpm and AppImage
 ```
 
-The Tauri build keeps the same app id (`fr.carru.elecwhat`) and reads the same
-`~/.config/elecwhat/config.json`, `persistent-state.json` and `user-*`
-directories as the Electron version.
+The Tauri build keeps the same app id (`fr.carru.elecwhat`) and reuses the
+existing `~/.config/elecwhat/config.json` (JSONC), `persistent-state.json` and
+`user-*` directories.
 
 ## Install
 
-Existing [Releases] were built from the Electron version and still work. The
-Tauri build produces `.deb`, `.rpm` and AppImage packages via `cargo tauri build`.
+No Tauri packages have been published yet. Build them locally:
 
-### Ubuntu/Kubuntu:
+```sh
+cargo tauri build
+```
 
-- [Snap](https://snapcraft.io/elecwhat)
-- **or** [Buildkite deb] with `--no-sandbox` because of [issue]
-- **or** .deb file in [Releases] with `--no-sandbox` because of [issue]
-- **or** AppImage in [Releases] with `--no-sandbox` because of [issue]
-
-### Arch Linux:
-
-- [AUR package]: `yay -S elecwhat-bin`
-- **or** Pacman package in [Releases]
-- **or** AppImage in [Releases]
-
-### Debian:
-
-- [Buildkite deb]
-- **or** .deb file in [Releases]
-- **or** AppImage in [Releases]
-
-### Fedora:
-
-- [Buildkite rpm]
-- **or** rpm file in [Releases]
-- **or** AppImage in [Releases]
+Bundles are written to `src-tauri/target/release/bundle/` (`.deb`, `.rpm`,
+AppImage). See [Building from source](#building-from-source-tauri) for the
+required dependencies. Published releases on the upstream repository predate
+this Tauri port.
 
 ## Configuration
 
-`~/.config/elecwhat/config.json`:
-
-(or for snap: `~/snap/elecwhat/current/.config/elecwhat/config.json`)
+`~/.config/elecwhat/config.json` (or `$XDG_CONFIG_HOME/elecwhat/config.json`
+when `XDG_CONFIG_HOME` is set):
 
 ```
 {
@@ -112,8 +94,10 @@ Tauri build produces `.deb`, `.rpm` and AppImage packages via `cargo tauri build
 
 ### Tauri migration notes
 
-- The Electron-era `keys` map is no longer used. WhatsApp's own shortcuts apply, along with the Escape/Alt window and menu toggles configured above.
+- The `keys` map from the old client is no longer used. WhatsApp's own shortcuts apply, along with the Escape/Alt window and menu toggles configured above.
 - User scripts run in the page context. The old `window.ew` bridge and the `state_get` command were removed, so scripts must not call them.
+- The WebKitGTK webview uses its own profile, so the first Tauri run requires signing in again.
+- Window geometry is stored in `~/.config/elecwhat/.window-state.json`; the old `window-bounds` entry in `persistent-state.json` is not imported. Tray toggles are saved in `persistent-state.json`.
 - `app.security.csp` is `null` in `src-tauri/tauri.conf.json`. The webview loads the external `https://web.whatsapp.com` page, so a local CSP would not apply to it; origin restrictions are enforced in Rust by `on_navigation`/`on_new_window` and by the minimal remote capability instead.
 - The optional `url` config key may only change the path/query on the `https://web.whatsapp.com` origin. Other origins fall back to the default because the remote IPC capability is compiled for that host.
 
@@ -130,10 +114,3 @@ The naming scheme is based on WhatsApp Web favicon urls:
 - Multi account
 - Complex features
 - Other OS support, official apps already exist.
-
-[Buildkite deb]: https://buildkite.com/organizations/piec/packages/registries/elecwhat-deb
-[Buildkite rpm]: https://buildkite.com/organizations/piec/packages/registries/elecwhat-rpm
-[Releases]: https://github.com/piec/elecwhat/releases
-[AppIndicator]: https://extensions.gnome.org/extension/615/appindicator-support/
-[issue]: https://github.com/electron/electron/issues/41066
-[AUR package]: https://aur.archlinux.org/packages/elecwhat-bin
