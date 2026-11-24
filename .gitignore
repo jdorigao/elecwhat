@@ -3,3 +3,5 @@ dist/
 src-tauri/target/
 
 .idea/
+
+src-tauri/gen/schemas/

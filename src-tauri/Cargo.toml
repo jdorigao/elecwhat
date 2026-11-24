@@ -1,0 +1,28 @@
+[package]
+name = "elecwhat"
+version = "1.16.2"
+description = "Simple desktop WhatsApp client for Linux"
+authors = ["Pierre Carru <pierre@carru.fr>"]
+homepage = "https://github.com/piec/elecwhat"
+license = "GPL-3.0-or-later"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "elecwhat_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+jsonc-parser = { version = "0.26", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"

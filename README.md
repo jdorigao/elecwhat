@@ -1,10 +1,11 @@
 # ElecWhat - Simple desktop WhatsApp client for Linux
 
 > **Status: migrating from Electron to Tauri.**
-> The Electron implementation and its packaging were removed from this branch.
-> Only the reusable pieces are kept for now: icons, translations, the injected
-> WhatsApp Web script and the default keybindings. Builds are not available
-> from this branch yet. See the [migration plan](docs/tauri-migration.md).
+> The Electron implementation and its packaging were removed. Phase 1
+> (foundation: window, config, single instance and window state) is implemented
+> in `src-tauri`. The WhatsApp injection, tray, notifications, D-Bus and
+> packaging are still to come. See the
+> [migration plan](docs/tauri-migration.md).
 
 <p align="center">
 <img width="400" alt="elecwhat" src="https://github.com/user-attachments/assets/3a352d5b-04a8-4e90-a063-330b706d096c" />
@@ -27,6 +28,20 @@
 ## Why?
 I created this client after due to recurrent stability issues with other linux clients.
 Also I just wanted a simple and stable client and thought it could be done without much code.
+
+## Building from source (Tauri)
+
+Requirements: Rust 1.90+, the Tauri Linux dependencies (`webkit2gtk-4.1`,
+`gtk+-3.0`, `libayatana-appindicator3`) and `cargo-tauri`.
+
+```sh
+cargo tauri dev      # development build
+cargo tauri build    # deb, rpm and AppImage
+```
+
+The Tauri build keeps the same app id (`fr.carru.elecwhat`) and reads the same
+`~/.config/elecwhat/config.json`, `persistent-state.json` and `user-*`
+directories as the Electron version.
 
 ## Install
 
