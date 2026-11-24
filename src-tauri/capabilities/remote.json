@@ -5,13 +5,9 @@
   "windows": ["main"],
   "remote": { "urls": ["https://web.whatsapp.com/*"] },
   "permissions": [
-    "allow-state-get",
     "allow-notify",
-    "allow-open-url",
-    "allow-restore",
     "allow-window-toggle",
     "allow-favicon-updated",
-    "allow-page-ready",
     "allow-menu-toggle"
   ]
 }

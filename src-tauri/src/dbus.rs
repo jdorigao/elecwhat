@@ -22,7 +22,9 @@ impl Service {
         util::window_hide(&self.app);
     }
     fn visible(&self) -> bool {
-        util::main_window(&self.app).and_then(|w| w.is_visible().ok()).unwrap_or(false)
+        util::main_window(&self.app)
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(false)
     }
     fn toggle_visibility(&self) -> bool {
         util::window_toggle(&self.app)
@@ -37,10 +39,10 @@ pub struct Dbus {
 }
 
 fn desktop_file() -> String {
-    if let Ok(hint) = std::env::var("BAMF_DESKTOP_FILE_HINT") {
-        if let Some(name) = std::path::Path::new(&hint).file_name() {
-            return name.to_string_lossy().into_owned();
-        }
+    if let Ok(hint) = std::env::var("BAMF_DESKTOP_FILE_HINT")
+        && let Some(name) = std::path::Path::new(&hint).file_name()
+    {
+        return name.to_string_lossy().into_owned();
     }
     if let Ok(id) = std::env::var("FLATPAK_ID") {
         return format!("{id}.desktop");
@@ -81,7 +83,13 @@ impl Dbus {
         let uri = format!("application://{}", desktop_file());
         if let Err(e) = self
             .conn
-            .emit_signal(None::<&str>, "/", "com.canonical.Unity.LauncherEntry", "Update", &(uri, props))
+            .emit_signal(
+                None::<&str>,
+                "/",
+                "com.canonical.Unity.LauncherEntry",
+                "Update",
+                &(uri, props),
+            )
             .await
         {
             log::debug!("badge: {e}");

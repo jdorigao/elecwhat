@@ -4,12 +4,13 @@
 <img width="400" alt="elecwhat" src="https://github.com/user-attachments/assets/3a352d5b-04a8-4e90-a063-330b706d096c" />
 </p>
 
+> **Fork / license notice:** This repository is a fork of [piec/elecwhat](https://github.com/piec/elecwhat), originally by Pierre Carru. The Tauri port is a modification made in this fork (Juliano Dorigão). The project remains licensed under [GPL-3.0-or-later](LICENSE).
+
 ## Features
 
 - Desktop notifications
 - Calls / Videos calls working (you need to join WhatsApp Web Beta)
 - Tray icon with unread count (aka AppIndicator), [custom tray icons](https://github.com/piec/elecwhat/issues/30#issuecomment-3470456738).
-- Custom keyboard shortcuts ([default](https://github.com/piec/elecwhat/blob/master/src/keys.mjs))
 - Custom CSS
 - Spellcheck
 - CLI & D-Bus interface to show/hide/toggle window
@@ -40,8 +41,8 @@ directories as the Electron version.
 
 ## Install
 
-Existing [Releases] were built from the Electron version and still work. This
-branch does not produce packages until the Tauri migration is done.
+Existing [Releases] were built from the Electron version and still work. The
+Tauri build produces `.deb`, `.rpm` and AppImage packages via `cargo tauri build`.
 
 ### Ubuntu/Kubuntu:
 
@@ -87,11 +88,6 @@ branch does not produce packages until the Tauri migration is done.
   "menu-bar": true,
   "menu-bar-auto-hide": true,
 
-  "keys": {
-    "C ArrowDown": {
-      "whatsappAction": "GO_TO_NEXT_CHAT"
-    }
-  },
   "esc-toggle-window": false,
 
   "css": [
@@ -113,6 +109,11 @@ branch does not produce packages until the Tauri migration is done.
   "icons-directory": "..."
 }
 ```
+
+### Tauri migration notes
+
+- The Electron-era `keys` map is no longer used. WhatsApp's own shortcuts apply, along with the Escape/Alt window and menu toggles configured above.
+- User scripts run in the page context. The old `window.ew` bridge and the `state_get` command were removed, so scripts must not call them.
 
 ## Custom icons
 

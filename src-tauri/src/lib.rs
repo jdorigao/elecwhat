@@ -1,37 +1,37 @@
 mod autostart;
 mod config;
 mod dbus;
+mod page;
 mod util;
 
 use config::{Config, StateFile};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 use tauri::{
+    AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent,
     image::Image,
     menu::{AboutMetadataBuilder, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    webview::{PageLoadEvent, PermissionKind, PermissionResponse},
-    AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    webview::{
+        DownloadEvent, NewWindowResponse, PageLoadEvent, PermissionKind, PermissionResponse,
+    },
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::StateFlags;
-use util::{tr, Translations};
+use util::{Translations, tr};
 
 const PKG_NAME: &str = "elecwhat";
-const BRIDGE_JS: &str = include_str!("../../src-web/bridge.js");
-const INJECTED_JS: &str = include_str!("../../src-web/injected.js");
-const DEFAULT_USER_AGENT: &str =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
 pub struct AppState {
     pub config: Config,
@@ -39,7 +39,6 @@ pub struct AppState {
     pub translations: Translations,
     pub user_agent: String,
     pub icons_dir: PathBuf,
-    pub keys: Value,
     pub url: Url,
     pub debug: bool,
     pub show_at_startup: bool,
@@ -53,71 +52,7 @@ pub struct AppState {
     pub dbus: OnceLock<dbus::Dbus>,
 }
 
-// ---- keys -----------------------------------------------------------------
-
-fn default_keys() -> serde_json::Map<String, Value> {
-    let mut m = serde_json::Map::new();
-    let wa = |a: &str| json!({ "whatsappAction": a });
-    m.insert("A ArrowDown".into(), wa("GO_TO_NEXT_CHAT"));
-    m.insert("A ArrowUp".into(), wa("GO_TO_PREV_CHAT"));
-    m.insert("C Tab".into(), wa("GO_TO_NEXT_CHAT"));
-    m.insert("CS Tab".into(), wa("GO_TO_PREV_CHAT"));
-    m.insert("C u".into(), wa("TOGGLE_UNREAD"));
-    m.insert("C ArrowUp".into(), wa("EDIT_LAST_MESSAGE"));
-    m.insert(
-        "A l".into(),
-        json!([{ "action": "IPC", "method": "windowToggle" }, { "whatsappAction": "LOCK_SCREEN" }]),
-    );
-    for (i, key) in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
-        .iter()
-        .enumerate()
-    {
-        for modifier in ["A", "C"] {
-            m.insert(
-                format!("{modifier} {key}"),
-                json!({ "action": "OPEN_NTH_CHAT", "chatIndex": i }),
-            );
-        }
-    }
-    m
-}
-
-fn keys(config: &Config) -> Value {
-    let mut m = default_keys();
-    if let Some(Value::Object(user)) = config.get("keys") {
-        m.extend(user.clone());
-    }
-    Value::Object(m)
-}
-
 // ---- commands (the only things web.whatsapp.com may call, see capabilities/remote.json) ----
-
-#[tauri::command]
-fn state_get(state: State<'_, AppState>, name: String) -> Value {
-    log::debug!("stateGet {name}");
-    match name.as_str() {
-        "keys" => state.keys.clone(),
-        "notifPrefix" => json!(state.config.str("notification-prefix", "")),
-        "escToggle" => json!(state.config.bool("esc-toggle-window", false)),
-        "menuAutoHide" => json!(
-            state.config.bool("menu-bar", true) && state.config.bool("menu-bar-auto-hide", true)
-        ),
-        "debug" => json!(state.debug),
-        _ => Value::Null,
-    }
-}
-
-#[tauri::command]
-fn page_ready(state: State<'_, AppState>) {
-    state.page_loaded.store(true, Ordering::SeqCst);
-}
-
-#[tauri::command]
-fn restore(app: AppHandle) {
-    if let Some(w) = util::main_window(&app) {
-        let _ = w.unminimize();
-    }
-}
 
 #[tauri::command]
 fn window_toggle(app: AppHandle) {
@@ -135,18 +70,36 @@ fn menu_toggle(app: AppHandle) {
     }
 }
 
-#[tauri::command]
-fn open_url(app: AppHandle, url: String) {
-    log::debug!("open url {url}");
-    // the page is untrusted input: only hand out web-ish links
-    match Url::parse(&url) {
-        Ok(u) if matches!(u.scheme(), "http" | "https" | "mailto" | "tel") => {
-            if let Err(e) = app.opener().open_url(u.as_str(), None::<&str>) {
-                log::error!("open {url}: {e}");
-            }
-        }
-        _ => log::warn!("refusing to open {url}"),
+/// Links are handled natively by `on_navigation` / `on_new_window`; the URL is
+/// untrusted page input, so only web-ish schemes are handed to the system.
+fn open_external(app: &AppHandle, url: &Url) {
+    if !matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
+        log::warn!("refusing to open {url}");
+        return;
     }
+    if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+        log::error!("open {url}: {e}");
+    }
+}
+
+/// Keeps downloads in the system download dir with a safe, non-colliding name.
+fn download_path(dir: &Path, name: &str) -> PathBuf {
+    let safe = Path::new(name)
+        .file_name()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("download"));
+    let mut path = dir.join(&safe);
+    let mut n = 1;
+    while path.exists() {
+        let stem = safe.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = safe
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        path = dir.join(format!("{stem}-{n}{ext}"));
+        n += 1;
+    }
+    path
 }
 
 fn escape_markup(s: &str) -> String {
@@ -155,8 +108,8 @@ fn escape_markup(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// WebKitGTK has no desktop-notification bridge of its own: bridge.js replaces
-/// window.Notification and sends it here; a click is sent back to the page.
+/// WebKitGTK has no desktop-notification bridge of its own: the page script
+/// replaces window.Notification and sends it here; a click is sent back to the page.
 #[tauri::command]
 fn notify(app: AppHandle, id: u64, title: String, body: String) {
     std::thread::spawn(move || {
@@ -389,21 +342,80 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
     let state = app.state::<AppState>();
     let config = &state.config;
     let page_host = state.url.host_str().map(String::from);
+    let permission_host = page_host.clone();
+    let nav_host = page_host.clone();
+    let new_host = page_host.clone();
     let page_app = app.clone();
+    let nav_app = app.clone();
+    let new_app = app.clone();
+    let download_app = app.clone();
+
+    let shim = page::script(
+        page_host.as_deref().unwrap_or("web.whatsapp.com"),
+        &config.str("notification-prefix", ""),
+        config.bool("esc-toggle-window", false),
+        config.bool("menu-bar", true) && config.bool("menu-bar-auto-hide", true),
+    );
 
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(initial_url))
         .title("ElecWhat")
         .inner_size(1099.0, 800.0)
         .visible(state.show_at_startup)
         .user_agent(&state.user_agent)
-        .initialization_script(BRIDGE_JS)
-        .on_permission_request(|_, kind| match kind {
-            // web.whatsapp.com is the only origin that can load here
-            PermissionKind::Microphone
-            | PermissionKind::Camera
-            | PermissionKind::DisplayCapture
-            | PermissionKind::Notifications => PermissionResponse::Allow,
-            _ => PermissionResponse::Default,
+        .initialization_script(shim)
+        .disable_drag_drop_handler()
+        .on_navigation(move |url| {
+            if url.scheme() == "https"
+                && url.host_str().map(String::from).as_deref() == nav_host.as_deref()
+            {
+                return true;
+            }
+            open_external(&nav_app, url);
+            false
+        })
+        .on_new_window(move |url, _| {
+            if url.scheme() == "https"
+                && url.host_str().map(String::from).as_deref() == new_host.as_deref()
+            {
+                NewWindowResponse::Allow
+            } else {
+                open_external(&new_app, &url);
+                NewWindowResponse::Deny
+            }
+        })
+        .on_download(move |_webview, event| {
+            if let DownloadEvent::Requested { destination, .. } = event {
+                let name = destination
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("download");
+                let dir = download_app
+                    .path()
+                    .download_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir());
+                *destination = download_path(&dir, name);
+            }
+            true
+        })
+        .on_permission_request(move |webview, kind| {
+            // Only the configured page may be granted camera/mic/screen access.
+            let same_host = webview
+                .url()
+                .ok()
+                .and_then(|u| u.host_str().map(String::from))
+                .as_deref()
+                == permission_host.as_deref();
+            if !same_host {
+                log::warn!("denying {kind:?} from an unexpected origin");
+                return PermissionResponse::Deny;
+            }
+            match kind {
+                PermissionKind::Microphone
+                | PermissionKind::Camera
+                | PermissionKind::DisplayCapture
+                | PermissionKind::Notifications => PermissionResponse::Allow,
+                _ => PermissionResponse::Default,
+            }
         })
         .on_page_load(move |w, payload| {
             let st = page_app.state::<AppState>();
@@ -413,8 +425,8 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
                     if payload.url().host_str().map(String::from) != page_host {
                         return;
                     }
+                    st.page_loaded.store(true, Ordering::SeqCst);
                     log::debug!("page load finished");
-                    let _ = w.eval(INJECTED_JS);
                     for script in util::load_user_scripts(&st.config) {
                         let _ = w.eval(script);
                     }
@@ -629,22 +641,25 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // WebKit has no "did-fail-load" hook: the page tells us when it is up (page_ready),
-    // if it never does (offline at startup, ...) retry like elecwhat always did.
-    let interval = Duration::from_millis(state.config.u64("retry-interval", 15000));
+    // WebKit has no "did-fail-load" hook: on_page_load tells us when the page is
+    // up, if it never does (offline at startup, ...) retry like elecwhat always did.
+    // A misconfigured 0 must not turn the watchdog into a busy loop.
+    let interval = Duration::from_millis(state.config.u64("retry-interval", 15000).max(1000));
     let h = handle.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(interval);
-        let st = h.state::<AppState>();
-        if !st.page_loaded.load(Ordering::SeqCst) {
-            log::warn!("page not loaded, retry");
-            let _ = notify_rust::Notification::new()
-                .appname("elecwhat")
-                .summary(PKG_NAME)
-                .body("Failed to load")
-                .show();
-            if let Some(w) = util::main_window(&h) {
-                let _ = w.navigate(st.url.clone());
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(interval);
+            let st = h.state::<AppState>();
+            if !st.page_loaded.load(Ordering::SeqCst) {
+                log::warn!("page not loaded, retry");
+                let _ = notify_rust::Notification::new()
+                    .appname("elecwhat")
+                    .summary(PKG_NAME)
+                    .body("Failed to load")
+                    .show();
+                if let Some(w) = util::main_window(&h) {
+                    let _ = w.navigate(st.url.clone());
+                }
             }
         }
     });
@@ -690,11 +705,13 @@ pub fn run() {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .unwrap_or_else(|| config_dir.join("user-icons")),
-        keys: keys(&config),
         url: config
             .str("url", "https://web.whatsapp.com/")
             .parse()
-            .expect("invalid `url` in config"),
+            .unwrap_or_else(|_| {
+                log::error!("invalid `url` in config, falling back to https://web.whatsapp.com/");
+                Url::parse("https://web.whatsapp.com/").expect("valid fallback URL")
+            }),
         debug,
         show_at_startup: quit_on_close || debug || config.bool("show-at-startup", true),
         quit_on_close: AtomicBool::new(quit_on_close),
@@ -725,13 +742,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
-            state_get,
             notify,
-            open_url,
-            restore,
             window_toggle,
             favicon_updated,
-            page_ready,
             menu_toggle
         ])
         .on_window_event(|window, event| {

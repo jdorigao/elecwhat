@@ -84,9 +84,11 @@ fn find_desktop_file() -> Option<PathBuf> {
         .iter()
         .filter_map(|v| std::env::var_os(v).map(PathBuf::from))
         .collect();
-    let mut dirs = vec![std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".local/share"))];
+    let mut dirs = vec![
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir().join(".local/share")),
+    ];
     let xdg =
         std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
     dirs.extend(xdg.split(':').map(PathBuf::from));
