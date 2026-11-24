@@ -1,4 +1,11 @@
 # ElecWhat - Simple desktop WhatsApp client for Linux
+
+> **Status: migrating from Electron to Tauri.**
+> The Electron implementation and its packaging were removed from this branch.
+> Only the reusable pieces are kept for now: icons, translations, the injected
+> WhatsApp Web script and the default keybindings. Builds are not available
+> from this branch yet. See the [migration plan](docs/tauri-migration.md).
+
 <p align="center">
 <img width="400" alt="elecwhat" src="https://github.com/user-attachments/assets/3a352d5b-04a8-4e90-a063-330b706d096c" />
 </p>
@@ -12,10 +19,6 @@
 * Spellcheck
 * CLI & D-Bus interface to show/hide/toggle window
 * Dock unread count badge
-* Very stable, I have been running it for 1+ year without crash/freeze
-* Can be trusted:
-  * Code easy to review - ~1200 lines of code currently in src*
-  * Automatically built by GitHub Actions (CI)
 * Preserve window position
 * Custom user scripts in `~/.config/elecwhat/user-scripts/*.js`
 * Custom tray icons in `~/.config/elecwhat/user-icons/*.png` by default
@@ -23,9 +26,12 @@
 
 ## Why?
 I created this client after due to recurrent stability issues with other linux clients.
-Also I just wanted a simple and stable client and thought it could be done without much code with electron.
+Also I just wanted a simple and stable client and thought it could be done without much code.
 
 ## Install
+
+Existing [Releases] were built from the Electron version and still work. This
+branch does not produce packages until the Tauri migration is done.
 
 ### Ubuntu/Kubuntu:
 * [Snap](https://snapcraft.io/elecwhat)
@@ -49,7 +55,6 @@ Also I just wanted a simple and stable client and thought it could be done witho
 * **or** AppImage in [Releases]
 
 ## Configuration
-
 
 `~/.config/elecwhat/config.json`:
 
@@ -105,7 +110,7 @@ The naming scheme is based on WhatsApp Web favicon urls:
 ## Not planed
 * Multi account
 * Complex features
-* Other OS support, official apps already exist. Porting would probably be easy though thanks to electron.
+* Other OS support, official apps already exist.
 
 [Buildkite deb]: https://buildkite.com/organizations/piec/packages/registries/elecwhat-deb
 [Buildkite rpm]: https://buildkite.com/organizations/piec/packages/registries/elecwhat-rpm

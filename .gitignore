@@ -1,8 +1,5 @@
 node_modules/
-
-/out/
-/dist*/
-/_rm/
-/.flatpak-builder/
+dist/
+src-tauri/target/
 
 .idea/
