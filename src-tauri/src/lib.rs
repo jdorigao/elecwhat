@@ -836,7 +836,8 @@ pub fn run() {
         }))
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                // not VISIBLE: `show-at-startup` decides
+                // Follow the plugin's save/restore flow, but keep VISIBLE out:
+                // `show-at-startup`/`quit-on-close` decide whether to show the window.
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
                 .build(),
         )

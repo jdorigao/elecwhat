@@ -95,7 +95,7 @@ when `XDG_CONFIG_HOME` is set):
 ### Tauri migration notes
 
 - The WebKitGTK webview uses its own profile, so the first Tauri run requires signing in again.
-- Window geometry is stored in `~/.config/elecwhat/.window-state.json`; the old `window-bounds` entry in `persistent-state.json` is not imported. Tray toggles are saved in `persistent-state.json`.
+- Window geometry is managed by `tauri-plugin-window-state` in its default `~/.config/elecwhat/.window-state.json`; the old `window-bounds` entry in `persistent-state.json` is not imported. Tray toggles are saved in `persistent-state.json`.
 - `app.security.csp` is `null` in `src-tauri/tauri.conf.json`. The webview loads the external `https://web.whatsapp.com` page, so a local CSP would not apply to it; origin restrictions are enforced in Rust by `on_navigation`/`on_new_window` and by the minimal remote capability instead.
 - The optional `url` config key may only change the path/query on the `https://web.whatsapp.com` origin. Other origins fall back to the default because the remote IPC capability is compiled for that host.
 
