@@ -57,7 +57,7 @@ this Tauri port.
 `~/.config/elecwhat/config.json` (or `$XDG_CONFIG_HOME/elecwhat/config.json`
 when `XDG_CONFIG_HOME` is set):
 
-```
+```text
 {
   "log-level": "info",
   "notification-prefix": "elecwhat - ",
@@ -94,8 +94,6 @@ when `XDG_CONFIG_HOME` is set):
 
 ### Tauri migration notes
 
-- The `keys` map from the old client is no longer used. WhatsApp's own shortcuts apply, along with the Escape/Alt window and menu toggles configured above.
-- User scripts run in the page context. The old `window.ew` bridge and the `state_get` command were removed, so scripts must not call them.
 - The WebKitGTK webview uses its own profile, so the first Tauri run requires signing in again.
 - Window geometry is stored in `~/.config/elecwhat/.window-state.json`; the old `window-bounds` entry in `persistent-state.json` is not imported. Tray toggles are saved in `persistent-state.json`.
 - `app.security.csp` is `null` in `src-tauri/tauri.conf.json`. The webview loads the external `https://web.whatsapp.com` page, so a local CSP would not apply to it; origin restrictions are enforced in Rust by `on_navigation`/`on_new_window` and by the minimal remote capability instead.

@@ -1,6 +1,6 @@
 [package]
 name = "elecwhat"
-version = "1.16.2"
+version = "2.0.0"
 description = "Simple desktop whatsapp client for linux"
 authors = [
     "Pierre Carru <pierre@carru.fr>",
