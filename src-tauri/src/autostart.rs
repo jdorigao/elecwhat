@@ -2,7 +2,7 @@
 //! Not supported in a snap/flatpak (no write access to the real ~/.config/autostart).
 
 use crate::util::{config_dir, home_dir};
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::OnceLock};
 
 pub const DESKTOP_NAME: &str = "elecwhat.desktop";
 
@@ -104,8 +104,9 @@ fn find_desktop_file() -> Option<PathBuf> {
 
 /// Copy of an installed entry without the Exec field codes (%U ...), and not disabled
 fn copied_entry(file: &PathBuf) -> std::io::Result<String> {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
     let text = fs::read_to_string(file)?;
-    let re = regex::Regex::new(r"\s+%[fFuUdDnNickvm]").unwrap();
+    let re = RE.get_or_init(|| regex::Regex::new(r"\s+%[fFuUdDnNickvm]").unwrap());
     let mut in_main = false;
     let mut lines: Vec<String> = Vec::new();
     for line in text.lines() {

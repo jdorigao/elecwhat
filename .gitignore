@@ -3,5 +3,6 @@ dist/
 src-tauri/target/
 
 .idea/
+.prettierrc
 
 src-tauri/gen/schemas/

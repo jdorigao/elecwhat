@@ -2,8 +2,12 @@
 name = "elecwhat"
 version = "1.16.2"
 description = "Simple desktop whatsapp client for linux"
-authors = ["Pierre Carru <pierre@carru.fr>"]
+authors = [
+    "Pierre Carru <pierre@carru.fr>",
+    "Juliano Dorigão <jdorigao@gmail.com>",
+]
 homepage = "https://github.com/piec/elecwhat"
+repository = "https://github.com/jdorigao/elecwhat"
 license = "GPL-3.0-or-later"
 edition = "2024"
 rust-version = "1.90"

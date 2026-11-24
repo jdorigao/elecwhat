@@ -13,7 +13,7 @@ use std::{
         Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{
     AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent,
@@ -82,24 +82,57 @@ fn open_external(app: &AppHandle, url: &Url) {
     }
 }
 
-/// Keeps downloads in the system download dir with a safe, non-colliding name.
-fn download_path(dir: &Path, name: &str) -> PathBuf {
+/// Same origin as the configured URL: scheme, host, explicit/default port and
+/// userinfo must all match. Used by both native navigation hooks.
+fn is_app_url(url: &Url, expected: &Url) -> bool {
+    url.scheme() == expected.scheme()
+        && url.host_str() == expected.host_str()
+        && url.port_or_known_default() == expected.port_or_known_default()
+        && url.username() == expected.username()
+        && url.password() == expected.password()
+}
+
+/// WhatsApp Web uses `blob:https://web.whatsapp.com/<uuid>` for previews and
+/// media. Its inner URL carries the real origin; the blob URL itself has none.
+fn is_app_blob(url: &Url, expected: &Url) -> bool {
+    url.scheme() == "blob" && Url::parse(url.path()).is_ok_and(|inner| is_app_url(&inner, expected))
+}
+
+/// URLs that must stay inside the webview instead of going to the system browser.
+fn is_internal_url(url: &Url, expected: &Url) -> bool {
+    is_app_url(url, expected) || is_app_blob(url, expected) || url.as_str() == "about:blank"
+}
+
+/// Reserves a safe, unused name in `dir` for a download whose destination is
+/// not absolute. `create_new` avoids a check-then-write race.
+fn reserve_download_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     let safe = Path::new(name)
         .file_name()
         .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("download"));
+    let stem = safe.file_stem().unwrap_or_default().to_string_lossy();
+    let ext = safe
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+
     let mut path = dir.join(&safe);
     let mut n = 1;
-    while path.exists() {
-        let stem = safe.file_stem().unwrap_or_default().to_string_lossy();
-        let ext = safe
-            .extension()
-            .map(|e| format!(".{}", e.to_string_lossy()))
-            .unwrap_or_default();
-        path = dir.join(format!("{stem}-{n}{ext}"));
-        n += 1;
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                path = dir.join(format!("{stem}-{n}{ext}"));
+                n += 1;
+            }
+            Err(e) => return Err(e),
+        }
     }
-    path
 }
 
 fn escape_markup(s: &str) -> String {
@@ -108,15 +141,59 @@ fn escape_markup(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+const MAX_NOTIFY_TITLE: usize = 256;
+const MAX_NOTIFY_BODY: usize = 2048;
+const MAX_NOTIFY_PER_SEC: u32 = 20;
+
+struct NotifyBudget {
+    window_start: Instant,
+    sent: u32,
+}
+
+static NOTIFY_BUDGET: OnceLock<Mutex<NotifyBudget>> = OnceLock::new();
+
+/// The page is untrusted: cap both size and frequency of native notifications.
+fn allow_notify() -> bool {
+    let mut budget = NOTIFY_BUDGET
+        .get_or_init(|| {
+            Mutex::new(NotifyBudget {
+                window_start: Instant::now(),
+                sent: 0,
+            })
+        })
+        .lock()
+        .unwrap();
+    let now = Instant::now();
+    if now.duration_since(budget.window_start) >= Duration::from_secs(1) {
+        budget.window_start = now;
+        budget.sent = 0;
+    }
+    if budget.sent >= MAX_NOTIFY_PER_SEC {
+        return false;
+    }
+    budget.sent += 1;
+    true
+}
+
+fn truncate_chars(s: String, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
 /// WebKitGTK has no desktop-notification bridge of its own: the page script
 /// replaces window.Notification and sends it here; a click is sent back to the page.
 #[tauri::command]
 fn notify(app: AppHandle, id: u64, title: String, body: String) {
+    if !allow_notify() {
+        log::warn!("too many notifications, dropping one");
+        return;
+    }
+    let title = truncate_chars(escape_markup(&title), MAX_NOTIFY_TITLE);
+    let body = truncate_chars(escape_markup(&body), MAX_NOTIFY_BODY);
     std::thread::spawn(move || {
         let res = notify_rust::Notification::new()
             .appname("elecwhat")
             .summary(&title)
-            .body(&escape_markup(&body))
+            .body(&body)
             .icon("elecwhat")
             .hint(notify_rust::Hint::DesktopEntry("elecwhat".into()))
             .action("default", "Open")
@@ -302,8 +379,14 @@ fn about_item(app: &AppHandle) -> tauri::Result<PredefinedMenuItem<tauri::Wry>> 
     let meta = AboutMetadataBuilder::new()
         .name(Some("ElecWhat"))
         .version(Some(app.package_info().version.to_string()))
-        .authors(Some(vec!["Pierre Carru".to_string()]))
-        .website(Some("https://github.com/piec/elecwhat"))
+        .authors(Some(vec![
+            "Pierre Carru".to_string(),
+            "Juliano Dorigão (Tauri port)".to_string(),
+        ]))
+        .website(Some("https://github.com/jdorigao/elecwhat"))
+        .comments(Some(
+            "Based on https://github.com/piec/elecwhat by Pierre Carru",
+        ))
         .license(Some("GPL-3.0-or-later"))
         .icon(app.default_window_icon().cloned())
         .build();
@@ -343,8 +426,9 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
     let config = &state.config;
     let page_host = state.url.host_str().map(String::from);
     let permission_host = page_host.clone();
-    let nav_host = page_host.clone();
-    let new_host = page_host.clone();
+    let nav_expected = state.url.clone();
+    let new_expected = state.url.clone();
+    let page_expected = state.url.clone();
     let page_app = app.clone();
     let nav_app = app.clone();
     let new_app = app.clone();
@@ -365,18 +449,14 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
         .initialization_script(shim)
         .disable_drag_drop_handler()
         .on_navigation(move |url| {
-            if url.scheme() == "https"
-                && url.host_str().map(String::from).as_deref() == nav_host.as_deref()
-            {
+            if is_internal_url(url, &nav_expected) {
                 return true;
             }
             open_external(&nav_app, url);
             false
         })
         .on_new_window(move |url, _| {
-            if url.scheme() == "https"
-                && url.host_str().map(String::from).as_deref() == new_host.as_deref()
-            {
+            if is_internal_url(&url, &new_expected) {
                 NewWindowResponse::Allow
             } else {
                 open_external(&new_app, &url);
@@ -384,7 +464,11 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
             }
         })
         .on_download(move |_webview, event| {
-            if let DownloadEvent::Requested { destination, .. } = event {
+            // Keep the destination chosen by the webview/user whenever it is
+            // absolute; only sanitize relative or unsafe paths.
+            if let DownloadEvent::Requested { destination, .. } = event
+                && !destination.is_absolute()
+            {
                 let name = destination
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -393,7 +477,12 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
                     .path()
                     .download_dir()
                     .unwrap_or_else(|_| std::env::temp_dir());
-                *destination = download_path(&dir, name);
+                match reserve_download_path(&dir, name) {
+                    Ok(path) => *destination = path,
+                    Err(e) => {
+                        log::error!("cannot reserve download path in {}: {e}", dir.display())
+                    }
+                }
             }
             true
         })
@@ -418,13 +507,15 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
             }
         })
         .on_page_load(move |w, payload| {
+            // Ignore blob/about:blank loads so they don't trip the watchdog or
+            // re-run user scripts; only the real WhatsApp page matters here.
+            if !is_app_url(payload.url(), &page_expected) {
+                return;
+            }
             let st = page_app.state::<AppState>();
             match payload.event() {
                 PageLoadEvent::Started => st.page_loaded.store(false, Ordering::SeqCst),
                 PageLoadEvent::Finished => {
-                    if payload.url().host_str().map(String::from) != page_host {
-                        return;
-                    }
                     st.page_loaded.store(true, Ordering::SeqCst);
                     log::debug!("page load finished");
                     for script in util::load_user_scripts(&st.config) {
@@ -760,4 +851,72 @@ pub fn run() {
         .setup(setup)
         .run(tauri::generate_context!())
         .expect("error while running elecwhat");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_url_matches_origin_strictly() {
+        let expected = Url::parse("https://web.whatsapp.com/").unwrap();
+        assert!(is_app_url(
+            &Url::parse("https://web.whatsapp.com/send?phone=1").unwrap(),
+            &expected
+        ));
+        assert!(!is_app_url(
+            &Url::parse("https://web.whatsapp.com:8443/").unwrap(),
+            &expected
+        ));
+        assert!(!is_app_url(
+            &Url::parse("https://user@web.whatsapp.com/").unwrap(),
+            &expected
+        ));
+        assert!(!is_app_url(
+            &Url::parse("https://web.whatsapp.com.evil/").unwrap(),
+            &expected
+        ));
+        assert!(!is_app_url(
+            &Url::parse("http://web.whatsapp.com/").unwrap(),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn keeps_whatsapp_blob_urls_inside_the_webview() {
+        let expected = Url::parse("https://web.whatsapp.com/").unwrap();
+        let blob = Url::parse("blob:https://web.whatsapp.com/6cbc687b-51a6-4500-86e0-39bf7e64dc02")
+            .unwrap();
+        assert!(is_app_blob(&blob, &expected));
+        assert!(is_internal_url(&blob, &expected));
+        assert!(is_internal_url(
+            &Url::parse("about:blank").unwrap(),
+            &expected
+        ));
+
+        let foreign =
+            Url::parse("blob:https://evil.example/6cbc687b-51a6-4500-86e0-39bf7e64dc02").unwrap();
+        assert!(!is_internal_url(&foreign, &expected));
+        assert!(!is_internal_url(
+            &Url::parse("data:text/html,x").unwrap(),
+            &expected
+        ));
+    }
+
+    #[test]
+    fn truncates_notification_text_on_char_boundaries() {
+        assert_eq!(truncate_chars("aé🌍b".to_owned(), 2), "aé");
+        assert_eq!(truncate_chars("abc".to_owned(), 10), "abc");
+    }
+
+    #[test]
+    fn reserves_unique_download_names() {
+        let dir = std::env::temp_dir().join(format!("elecwhat-download-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = reserve_download_path(&dir, "file.txt").unwrap();
+        let second = reserve_download_path(&dir, "file.txt").unwrap();
+        assert_ne!(first, second);
+        assert!(first.exists() && second.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

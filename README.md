@@ -114,6 +114,7 @@ Tauri build produces `.deb`, `.rpm` and AppImage packages via `cargo tauri build
 
 - The Electron-era `keys` map is no longer used. WhatsApp's own shortcuts apply, along with the Escape/Alt window and menu toggles configured above.
 - User scripts run in the page context. The old `window.ew` bridge and the `state_get` command were removed, so scripts must not call them.
+- `app.security.csp` is `null` in `src-tauri/tauri.conf.json`. The webview loads the external `https://web.whatsapp.com` page, so a local CSP would not apply to it; origin restrictions are enforced in Rust by `on_navigation`/`on_new_window` and by the minimal remote capability instead.
 
 ## Custom icons
 

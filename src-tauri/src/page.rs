@@ -56,16 +56,20 @@ const SCRIPT: &str = r#"
       this.dispatchEvent(ev);
     }
 
+    _close() {
+      if (live.delete(this._id)) this._fire("close");
+    }
+
     close() {
-      live.delete(this._id);
+      this._close();
     }
   }
   window.Notification = EwNotification;
   window.__ewNotifClick = (id) => {
     const n = live.get(id);
     if (n) {
-      live.delete(id);
       n._fire("click");
+      n._close();
     }
   };
 
@@ -161,5 +165,6 @@ mod tests {
         assert!(script.contains("const PREFIX = \"a\\\"b\\\\c\";"));
         assert!(script.contains("const ESC_TOGGLE = true;"));
         assert!(script.contains("const MENU_AUTO_HIDE = false;"));
+        assert!(script.contains("_fire(\"close\")"));
     }
 }
