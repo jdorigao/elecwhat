@@ -206,8 +206,9 @@ fn notify(app: AppHandle, id: u64, title: String, body: String) {
         log::warn!("too many notifications, dropping one");
         return;
     }
-    let title = truncate_chars(escape_markup(&title), MAX_NOTIFY_TITLE);
-    let body = truncate_chars(escape_markup(&body), MAX_NOTIFY_BODY);
+    // Truncate before escaping so a multi-byte entity is never cut in half.
+    let title = escape_markup(&truncate_chars(title, MAX_NOTIFY_TITLE));
+    let body = escape_markup(&truncate_chars(body, MAX_NOTIFY_BODY));
     std::thread::spawn(move || {
         let res = notify_rust::Notification::new()
             .appname("elecwhat")
@@ -284,12 +285,22 @@ fn on_second_instance(app: &AppHandle, argv: &[String]) {
 
 // ---- webkit (linux) -----------------------------------------------------------------
 
-fn configure_webkit(window: &tauri::WebviewWindow, spellcheck: bool, langs: Vec<String>) {
+fn configure_webkit(
+    window: &tauri::WebviewWindow,
+    spellcheck: bool,
+    langs: Vec<String>,
+    user_agent: String,
+) {
     let _ = window.with_webview(move |wv| {
         use webkit2gtk::{SettingsExt, WebContextExt, WebViewExt};
         let view = wv.inner();
         // wry does not turn these on: needed for calls / voice+video messages
         if let Some(s) = view.settings() {
+            // The builder already sets this through wry; set it here as well so
+            // the runtime setting cannot be replaced by a WebKit default.
+            // WhatsApp Web spoofs navigator.userAgent, so verify the override
+            // through network requests, not through that JS property.
+            s.set_user_agent(Some(&user_agent));
             s.set_enable_media_stream(true);
             s.set_enable_webrtc(true);
             s.set_enable_mediasource(true);
@@ -563,7 +574,12 @@ fn create_window(app: &AppHandle, initial_url: Url) -> Result<(), Box<dyn std::e
         .str_list("spellcheck-languages")
         .unwrap_or_else(util::preferred_langs);
     log::debug!("spellLangs {langs:?}");
-    configure_webkit(&window, config.bool("spellcheck", true), langs);
+    configure_webkit(
+        &window,
+        config.bool("spellcheck", true),
+        langs,
+        state.user_agent.clone(),
+    );
     Ok(())
 }
 
@@ -761,11 +777,26 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             let st = h.state::<AppState>();
             if !st.page_loaded.load(Ordering::SeqCst) {
                 log::warn!("page not loaded, retry");
-                let _ = notify_rust::Notification::new()
+                // Same click behaviour as a page notification: bring the window
+                // back instead of leaving the user with a dead notification.
+                if let Ok(notification) = notify_rust::Notification::new()
                     .appname("elecwhat")
                     .summary(PKG_NAME)
                     .body("Failed to load")
-                    .show();
+                    .icon("elecwhat")
+                    .hint(notify_rust::Hint::DesktopEntry("elecwhat".into()))
+                    .action("default", "Open")
+                    .show()
+                {
+                    let click_app = h.clone();
+                    std::thread::spawn(move || {
+                        notification.wait_for_action(move |action| {
+                            if action == "default" {
+                                util::window_show(&click_app);
+                            }
+                        });
+                    });
+                }
                 if let Some(w) = util::main_window(&h) {
                     let _ = w.navigate(st.url.clone());
                 }
